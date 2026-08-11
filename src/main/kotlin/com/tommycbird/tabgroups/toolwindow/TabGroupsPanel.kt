@@ -1,18 +1,24 @@
 package com.tommycbird.tabgroups.toolwindow
 
 import com.intellij.openapi.Disposable
+import com.intellij.openapi.actionSystem.ActionGroup
 import com.intellij.openapi.actionSystem.ActionManager
 import com.intellij.openapi.actionSystem.AnAction
 import com.intellij.openapi.actionSystem.AnActionEvent
+import com.intellij.openapi.actionSystem.CommonDataKeys
+import com.intellij.openapi.actionSystem.DataProvider
 import com.intellij.openapi.actionSystem.DefaultActionGroup
 import com.intellij.openapi.application.ApplicationManager
 import com.intellij.openapi.fileEditor.FileEditorManager
 import com.intellij.openapi.fileEditor.FileEditorManagerEvent
 import com.intellij.openapi.fileEditor.FileEditorManagerListener
+import com.intellij.openapi.fileEditor.ex.FileEditorManagerEx
+import com.intellij.openapi.fileEditor.impl.EditorWindow
 import com.intellij.openapi.options.ShowSettingsUtil
 import com.intellij.openapi.project.Project
 import com.intellij.openapi.vfs.VirtualFile
 import com.intellij.openapi.ui.SimpleToolWindowPanel
+import com.intellij.ui.PopupHandler
 import com.intellij.ui.ScrollPaneFactory
 import com.intellij.ui.treeStructure.Tree
 import com.intellij.util.ui.tree.TreeUtil
@@ -21,15 +27,17 @@ import com.tommycbird.tabgroups.matcher.ResolvedGroup
 import com.tommycbird.tabgroups.settings.TabGroupsConfigurable
 import com.tommycbird.tabgroups.settings.TabGroupsSettings
 import com.intellij.icons.AllIcons
+import java.awt.Component
 import java.awt.event.MouseAdapter
 import java.awt.event.MouseEvent
+import javax.swing.SwingUtilities
 import javax.swing.tree.DefaultMutableTreeNode
 import javax.swing.tree.DefaultTreeModel
 import javax.swing.tree.TreePath
 import javax.swing.tree.TreeSelectionModel
 
 // tool window showing open files grouped, colored and collapsible; single-click opens a file
-class TabGroupsPanel(private val project: Project) : SimpleToolWindowPanel(true, true), Disposable {
+class TabGroupsPanel(private val project: Project) : SimpleToolWindowPanel(true, true), Disposable, DataProvider {
 
     private val rootNode = DefaultMutableTreeNode("root")
     private val treeModel = DefaultTreeModel(rootNode)
@@ -47,6 +55,7 @@ class TabGroupsPanel(private val project: Project) : SimpleToolWindowPanel(true,
 
         tree.addMouseListener(object : MouseAdapter() {
             override fun mousePressed(e: MouseEvent) {
+                if (e.isPopupTrigger || !SwingUtilities.isLeftMouseButton(e)) return
                 val path = tree.getPathForLocation(e.x, e.y) ?: return
                 val node = path.lastPathComponent as? DefaultMutableTreeNode ?: return
                 when (val obj = node.userObject) {
@@ -57,6 +66,8 @@ class TabGroupsPanel(private val project: Project) : SimpleToolWindowPanel(true,
                 }
             }
         })
+
+        installPopupMenu()
 
         tree.addTreeExpansionListener(object : javax.swing.event.TreeExpansionListener {
             override fun treeExpanded(event: javax.swing.event.TreeExpansionEvent) =
@@ -117,6 +128,44 @@ class TabGroupsPanel(private val project: Project) : SimpleToolWindowPanel(true,
         if (file.isValid) {
             FileEditorManager.getInstance(project).openFile(file, true)
         }
+    }
+
+    // reuse the native editor-tab right-click menu on file rows
+    private fun installPopupMenu() {
+        tree.addMouseListener(object : PopupHandler() {
+            override fun invokePopup(comp: Component, x: Int, y: Int) {
+                val path = tree.getPathForLocation(x, y) ?: return
+                val node = path.lastPathComponent as? DefaultMutableTreeNode ?: return
+                if (node.userObject !is FileNode) return
+                tree.selectionPath = path
+                val group = ActionManager.getInstance().getAction("EditorTabPopupMenu") as? ActionGroup ?: return
+                val menu = ActionManager.getInstance().createActionPopupMenu("TabGroupsPopup", group)
+                menu.setTargetComponent(tree)
+                menu.component.show(comp, x, y)
+            }
+        })
+    }
+
+    // provides the clicked file + its editor window so the tab actions operate on the right target
+    override fun getData(dataId: String): Any? {
+        val file = selectedFile() ?: return null
+        return when {
+            CommonDataKeys.PROJECT.`is`(dataId) -> project
+            CommonDataKeys.VIRTUAL_FILE.`is`(dataId) -> file
+            CommonDataKeys.VIRTUAL_FILE_ARRAY.`is`(dataId) -> arrayOf(file)
+            EditorWindow.DATA_KEY.`is`(dataId) -> windowFor(file)
+            else -> null
+        }
+    }
+
+    private fun selectedFile(): VirtualFile? {
+        val node = tree.selectionPath?.lastPathComponent as? DefaultMutableTreeNode ?: return null
+        return (node.userObject as? FileNode)?.file
+    }
+
+    private fun windowFor(file: VirtualFile): EditorWindow? {
+        val manager = FileEditorManagerEx.getInstanceEx(project)
+        return manager.windows.firstOrNull { it.isFileOpen(file) } ?: manager.currentWindow
     }
 
     private fun toggle(path: TreePath) {
