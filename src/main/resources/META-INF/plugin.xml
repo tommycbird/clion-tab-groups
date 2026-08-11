@@ -1,0 +1,33 @@
+<idea-plugin>
+    <id>com.tommycbird.clion-tab-groups</id>
+    <name>Tab Groups</name>
+    <vendor email="tommycbird@gmail.com" url="https://github.com/tommycbird">tommycbird</vendor>
+
+    <description><![CDATA[
+        Organize your open editor files into named, colored, collapsible groups
+        driven by regex. Files are matched top-to-bottom (first match wins), and
+        anything unmatched falls into a customizable <b>Misc</b> group.<br><br>
+        Adds a <b>Tab Groups</b> tool window that acts as a grouped, tab-bar-style
+        list of open files &mdash; single-click an entry to open/focus it.
+    ]]></description>
+
+    <!-- Works in any JetBrains IDE (CLion, IDEA, etc.) -->
+    <depends>com.intellij.modules.platform</depends>
+
+    <extensions defaultExtensionNs="com.intellij">
+        <applicationService serviceImplementation="com.tommycbird.tabgroups.settings.TabGroupsSettings"/>
+
+        <applicationConfigurable
+            parentId="tools"
+            instance="com.tommycbird.tabgroups.settings.TabGroupsConfigurable"
+            id="com.tommycbird.tabgroups.settings.TabGroupsConfigurable"
+            displayName="Tab Groups"/>
+
+        <toolWindow
+            id="Tab Groups"
+            anchor="left"
+            secondary="false"
+            icon="/icons/tabGroups.svg"
+            factoryClass="com.tommycbird.tabgroups.toolwindow.TabGroupsToolWindowFactory"/>
+    </extensions>
+</idea-plugin>
