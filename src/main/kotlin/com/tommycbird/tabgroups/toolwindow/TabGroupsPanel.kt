@@ -27,6 +27,7 @@ import com.tommycbird.tabgroups.matcher.ResolvedGroup
 import com.tommycbird.tabgroups.settings.TabGroupsConfigurable
 import com.tommycbird.tabgroups.settings.TabGroupsSettings
 import com.intellij.icons.AllIcons
+import com.intellij.ui.Gray
 import com.intellij.ui.JBColor
 import com.intellij.ui.hover.TreeHoverListener
 import com.intellij.util.ui.JBUI
@@ -228,6 +229,7 @@ class TabGroupsPanel(private val project: Project) : SimpleToolWindowPanel(true,
 
     // draw a line wherever the section changes (starred|normal and normal|misc)
     private fun paintSectionDividers(g: Graphics) {
+        val sep = JBColor(Gray._205, Gray._75)
         var prev: Int? = null
         for (i in 0 until rootNode.childCount) {
             val node = rootNode.getChildAt(i) as DefaultMutableTreeNode
@@ -236,7 +238,7 @@ class TabGroupsPanel(private val project: Project) : SimpleToolWindowPanel(true,
             if (prev != null && section != prev) {
                 val row = tree.getRowForPath(TreePath(arrayOf<Any>(rootNode, node)))
                 tree.getRowBounds(row)?.let { b ->
-                    g.color = JBColor.border()
+                    g.color = sep
                     g.fillRect(0, b.y, tree.width, JBUI.scale(1))
                 }
             }

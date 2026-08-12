@@ -7,6 +7,7 @@ import com.intellij.ui.ColoredTreeCellRenderer
 import com.intellij.ui.JBColor
 import com.intellij.ui.RowIcon
 import com.intellij.ui.SimpleTextAttributes
+import com.intellij.ui.hover.TreeHoverListener
 import com.intellij.util.ui.ColorIcon
 import com.intellij.util.ui.EmptyIcon
 import com.intellij.util.ui.UIUtil
@@ -57,8 +58,15 @@ class TabGroupsTreeRenderer(private val project: Project) : ColoredTreeCellRende
                     EmptyIcon.ICON_16
                 }
                 val starred = TabGroupsSettings.getInstance().isStarred(file.url)
-                val star = if (starred) AllIcons.Nodes.Favorite else AllIcons.Nodes.NotFavoriteOnHover
-                icon = RowIcon(star, fileIcon)
+                val hovered = TreeHoverListener.getHoveredRow(tree) == row
+                val fav = AllIcons.Nodes.Favorite
+                // star shows when starred (filled) or on hover (outline); blank slot otherwise so nothing shifts
+                val leading = when {
+                    starred -> fav
+                    hovered -> AllIcons.Nodes.NotFavoriteOnHover
+                    else -> EmptyIcon.create(fav.iconWidth, fav.iconHeight)
+                }
+                icon = RowIcon(leading, fileIcon)
                 val active = file == activeFile
                 val attrs = if (active) {
                     SimpleTextAttributes.REGULAR_BOLD_ATTRIBUTES
