@@ -27,7 +27,12 @@ import com.tommycbird.tabgroups.matcher.ResolvedGroup
 import com.tommycbird.tabgroups.settings.TabGroupsConfigurable
 import com.tommycbird.tabgroups.settings.TabGroupsSettings
 import com.intellij.icons.AllIcons
+import com.intellij.ui.JBColor
+import com.intellij.util.ui.JBUI
+import java.awt.Color
 import java.awt.Component
+import java.awt.Graphics
+import java.awt.Rectangle
 import java.awt.event.MouseAdapter
 import java.awt.event.MouseEvent
 import javax.swing.SwingUtilities
@@ -41,8 +46,16 @@ class TabGroupsPanel(private val project: Project) : SimpleToolWindowPanel(true,
 
     private val rootNode = DefaultMutableTreeNode("root")
     private val treeModel = DefaultTreeModel(rootNode)
-    private val tree = Tree(treeModel)
     private val renderer = TabGroupsTreeRenderer(project)
+
+    // hover state for the highlight + close button
+    private var hoveredRow = -1
+    private var overCloseIcon = false
+    private val hoverBg = JBColor(Color(0, 0, 0, 18), Color(255, 255, 255, 20))
+    private val closeIcon get() = AllIcons.Actions.Close
+    private val closeIconHovered get() = AllIcons.Actions.CloseHovered
+
+    private val tree = GroupTree()
 
     // guards the expansion listener while we expand/collapse programmatically
     private var rebuilding = false
@@ -56,15 +69,26 @@ class TabGroupsPanel(private val project: Project) : SimpleToolWindowPanel(true,
         tree.addMouseListener(object : MouseAdapter() {
             override fun mousePressed(e: MouseEvent) {
                 if (e.isPopupTrigger || !SwingUtilities.isLeftMouseButton(e)) return
-                val path = tree.getPathForLocation(e.x, e.y) ?: return
-                val node = path.lastPathComponent as? DefaultMutableTreeNode ?: return
-                when (val obj = node.userObject) {
-                    is FileNode -> openFile(obj.file)
-                    is GroupNode -> {
-                        if (e.clickCount == 2) toggle(path)
+                val row = rowAt(e.x, e.y)
+                if (row < 0) return
+                val obj = nodeAt(row)?.userObject
+                if (obj is FileNode) {
+                    // clicking the hover X closes; anywhere else on the row opens
+                    if (closeIconRect(row)?.contains(e.x, e.y) == true) {
+                        FileEditorManager.getInstance(project).closeFile(obj.file)
+                    } else {
+                        openFile(obj.file)
                     }
+                } else if (obj is GroupNode && e.clickCount == 2) {
+                    tree.getPathForRow(row)?.let { toggle(it) }
                 }
             }
+
+            override fun mouseExited(e: MouseEvent) = clearHover()
+        })
+
+        tree.addMouseMotionListener(object : MouseAdapter() {
+            override fun mouseMoved(e: MouseEvent) = updateHover(e.x, e.y)
         })
 
         installPopupMenu()
@@ -168,6 +192,65 @@ class TabGroupsPanel(private val project: Project) : SimpleToolWindowPanel(true,
         return manager.windows.firstOrNull { it.isFileOpen(file) } ?: manager.currentWindow
     }
 
+    // tree that fills the viewport width and paints the hover highlight + close icon
+    private inner class GroupTree : Tree(treeModel) {
+        override fun getScrollableTracksViewportWidth(): Boolean = true
+
+        override fun paintComponent(g: Graphics) {
+            val row = hoveredRow
+            if (row >= 0) {
+                getRowBounds(row)?.let { b ->
+                    g.color = hoverBg
+                    g.fillRect(0, b.y, width, b.height)
+                }
+            }
+            super.paintComponent(g)
+            closeIconRect(row)?.let { r ->
+                val icon = if (overCloseIcon) closeIconHovered else closeIcon
+                icon.paintIcon(this, g, r.x, r.y)
+            }
+        }
+    }
+
+    private fun nodeAt(row: Int): DefaultMutableTreeNode? =
+        tree.getPathForRow(row)?.lastPathComponent as? DefaultMutableTreeNode
+
+    private fun isFileRow(row: Int): Boolean = nodeAt(row)?.userObject is FileNode
+
+    // right-aligned close icon rect for a file row, or null
+    private fun closeIconRect(row: Int): Rectangle? {
+        if (row < 0 || !isFileRow(row)) return null
+        val b = tree.getRowBounds(row) ?: return null
+        val icon = closeIcon
+        val x = tree.width - icon.iconWidth - JBUI.scale(8)
+        val y = b.y + (b.height - icon.iconHeight) / 2
+        return Rectangle(x, y, icon.iconWidth, icon.iconHeight)
+    }
+
+    private fun rowAt(x: Int, y: Int): Int {
+        val row = tree.getClosestRowForLocation(x, y)
+        val b = if (row >= 0) tree.getRowBounds(row) else null
+        return if (b != null && y >= b.y && y < b.y + b.height) row else -1
+    }
+
+    private fun updateHover(x: Int, y: Int) {
+        val row = rowAt(x, y)
+        val over = row >= 0 && closeIconRect(row)?.contains(x, y) == true
+        if (row != hoveredRow || over != overCloseIcon) {
+            hoveredRow = row
+            overCloseIcon = over
+            tree.repaint()
+        }
+    }
+
+    private fun clearHover() {
+        if (hoveredRow != -1 || overCloseIcon) {
+            hoveredRow = -1
+            overCloseIcon = false
+            tree.repaint()
+        }
+    }
+
     private fun toggle(path: TreePath) {
         if (tree.isExpanded(path)) tree.collapsePath(path) else tree.expandPath(path)
     }
@@ -191,6 +274,8 @@ class TabGroupsPanel(private val project: Project) : SimpleToolWindowPanel(true,
 
     // recompute groups from the open files and rebuild the tree
     fun rebuild() {
+        hoveredRow = -1
+        overCloseIcon = false
         val settings = TabGroupsSettings.getInstance()
         val openFiles = FileEditorManager.getInstance(project).openFiles
 
