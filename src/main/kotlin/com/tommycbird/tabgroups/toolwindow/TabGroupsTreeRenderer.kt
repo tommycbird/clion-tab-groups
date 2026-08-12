@@ -35,7 +35,11 @@ class TabGroupsTreeRenderer(private val project: Project) : ColoredTreeCellRende
         when (val obj = node.userObject) {
             is GroupNode -> {
                 val color = safeColor(obj.group.colorRgb)
-                icon = if (obj.group.isStarred) AllIcons.Nodes.Favorite else ColorIcon(12, color)
+                icon = when {
+                    obj.group.isStarred -> AllIcons.Nodes.Favorite
+                    obj.group.isMisc -> ColorIcon(12, color)
+                    else -> CircleColorIcon(12, color)
+                }
                 append(
                     obj.group.name,
                     SimpleTextAttributes(SimpleTextAttributes.STYLE_BOLD, color),

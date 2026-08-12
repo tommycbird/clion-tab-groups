@@ -31,9 +31,12 @@ import com.intellij.ui.Gray
 import com.intellij.ui.JBColor
 import com.intellij.ui.hover.TreeHoverListener
 import com.intellij.util.ui.JBUI
+import java.awt.Color
 import java.awt.Component
 import java.awt.Graphics
+import java.awt.Graphics2D
 import java.awt.Rectangle
+import java.awt.RenderingHints
 import java.awt.event.MouseAdapter
 import java.awt.event.MouseEvent
 import javax.swing.SwingUtilities
@@ -53,7 +56,7 @@ class TabGroupsPanel(private val project: Project) : SimpleToolWindowPanel(true,
     private var overCloseIcon = false
     private val closeIcon get() = AllIcons.Actions.Close
     private val closeIconHovered get() = AllIcons.Actions.CloseHovered
-    private val closeGutter get() = JBUI.scale(24)
+    private val closeGutter get() = JBUI.scale(30)
     private val starredGroup = ResolvedGroup("Starred", 0xF5C518, isMisc = false, order = Int.MIN_VALUE, isStarred = true)
 
     private val tree = GroupTree()
@@ -214,6 +217,15 @@ class TabGroupsPanel(private val project: Project) : SimpleToolWindowPanel(true,
             paintSectionDividers(g)
             val row = TreeHoverListener.getHoveredRow(this)
             closeIconRect(row)?.let { r ->
+                // light-red rounded backing so the x is easy to see; stronger when the cursor is on it
+                val alpha = if (overCloseIcon) 130 else 60
+                val g2 = g.create() as Graphics2D
+                g2.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON)
+                g2.color = JBColor(Color(0xEB, 0x5C, 0x5C, alpha), Color(0xEB, 0x5C, 0x5C, alpha))
+                val pad = JBUI.scale(3)
+                val arc = JBUI.scale(6)
+                g2.fillRoundRect(r.x - pad, r.y - pad, r.width + pad * 2, r.height + pad * 2, arc, arc)
+                g2.dispose()
                 val icon = if (overCloseIcon) closeIconHovered else closeIcon
                 icon.paintIcon(this, g, r.x, r.y)
             }
@@ -265,12 +277,12 @@ class TabGroupsPanel(private val project: Project) : SimpleToolWindowPanel(true,
         return Rectangle(b.x, b.y + (b.height - icon.iconHeight) / 2, icon.iconWidth, icon.iconHeight)
     }
 
-    // close icon centered in the right gutter for a file row, or null
+    // close icon in the right gutter (left-aligned, with breathing room) for a file row, or null
     private fun closeIconRect(row: Int): Rectangle? {
         if (row < 0 || !isFileRow(row)) return null
         val b = tree.getRowBounds(row) ?: return null
         val icon = closeIcon
-        val x = tree.width - closeGutter + (closeGutter - icon.iconWidth) / 2
+        val x = tree.width - closeGutter + JBUI.scale(4)
         val y = b.y + (b.height - icon.iconHeight) / 2
         return Rectangle(x, y, icon.iconWidth, icon.iconHeight)
     }
