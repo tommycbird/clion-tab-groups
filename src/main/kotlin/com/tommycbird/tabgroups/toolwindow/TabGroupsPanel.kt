@@ -27,6 +27,7 @@ import com.tommycbird.tabgroups.matcher.ResolvedGroup
 import com.tommycbird.tabgroups.settings.TabGroupsConfigurable
 import com.tommycbird.tabgroups.settings.TabGroupsSettings
 import com.intellij.icons.AllIcons
+import com.intellij.ui.JBColor
 import com.intellij.ui.hover.TreeHoverListener
 import com.intellij.util.ui.JBUI
 import java.awt.Component
@@ -52,6 +53,7 @@ class TabGroupsPanel(private val project: Project) : SimpleToolWindowPanel(true,
     private val closeIcon get() = AllIcons.Actions.Close
     private val closeIconHovered get() = AllIcons.Actions.CloseHovered
     private val closeGutter get() = JBUI.scale(24)
+    private val starredGroup = ResolvedGroup("Starred", 0xF5C518, isMisc = false, order = Int.MIN_VALUE, isStarred = true)
 
     private val tree = GroupTree()
 
@@ -77,8 +79,10 @@ class TabGroupsPanel(private val project: Project) : SimpleToolWindowPanel(true,
                 if (row < 0) return
                 val obj = nodeAt(row)?.userObject
                 if (obj is FileNode) {
-                    // clicking the hover X closes; anywhere else on the row opens
-                    if (closeIconRect(row)?.contains(e.x, e.y) == true) {
+                    // far-left star toggles; hover X closes; anywhere else opens
+                    if (starIconRect(row)?.contains(e.x, e.y) == true) {
+                        toggleStar(obj.file)
+                    } else if (closeIconRect(row)?.contains(e.x, e.y) == true) {
                         FileEditorManager.getInstance(project).closeFile(obj.file)
                     } else {
                         openFile(obj.file)
@@ -140,7 +144,11 @@ class TabGroupsPanel(private val project: Project) : SimpleToolWindowPanel(true,
         val connection = project.messageBus.connect(this)
         connection.subscribe(FileEditorManagerListener.FILE_EDITOR_MANAGER, object : FileEditorManagerListener {
             override fun fileOpened(source: FileEditorManager, file: VirtualFile) = rebuild()
-            override fun fileClosed(source: FileEditorManager, file: VirtualFile) = rebuild()
+            override fun fileClosed(source: FileEditorManager, file: VirtualFile) {
+                // closing a starred file unstars it
+                TabGroupsSettings.getInstance().setStarred(file.url, false)
+                rebuild()
+            }
             override fun selectionChanged(event: FileEditorManagerEvent) {
                 syncActiveSelection()
             }
@@ -202,6 +210,7 @@ class TabGroupsPanel(private val project: Project) : SimpleToolWindowPanel(true,
 
         override fun paintComponent(g: Graphics) {
             super.paintComponent(g)
+            paintSectionDividers(g)
             val row = TreeHoverListener.getHoveredRow(this)
             closeIconRect(row)?.let { r ->
                 val icon = if (overCloseIcon) closeIconHovered else closeIcon
@@ -210,10 +219,49 @@ class TabGroupsPanel(private val project: Project) : SimpleToolWindowPanel(true,
         }
     }
 
+    // 0 = starred, 1 = normal, 2 = misc
+    private fun sectionOf(group: ResolvedGroup): Int = when {
+        group.isStarred -> 0
+        group.isMisc -> 2
+        else -> 1
+    }
+
+    // draw a line wherever the section changes (starred|normal and normal|misc)
+    private fun paintSectionDividers(g: Graphics) {
+        var prev: Int? = null
+        for (i in 0 until rootNode.childCount) {
+            val node = rootNode.getChildAt(i) as DefaultMutableTreeNode
+            val group = (node.userObject as? GroupNode)?.group ?: continue
+            val section = sectionOf(group)
+            if (prev != null && section != prev) {
+                val row = tree.getRowForPath(TreePath(arrayOf<Any>(rootNode, node)))
+                tree.getRowBounds(row)?.let { b ->
+                    g.color = JBColor.border()
+                    g.fillRect(0, b.y, tree.width, JBUI.scale(1))
+                }
+            }
+            prev = section
+        }
+    }
+
+    private fun toggleStar(file: VirtualFile) {
+        val settings = TabGroupsSettings.getInstance()
+        settings.setStarred(file.url, !settings.isStarred(file.url))
+        rebuild()
+    }
+
     private fun nodeAt(row: Int): DefaultMutableTreeNode? =
         tree.getPathForRow(row)?.lastPathComponent as? DefaultMutableTreeNode
 
     private fun isFileRow(row: Int): Boolean = nodeAt(row)?.userObject is FileNode
+
+    // star toggle at the node's far-left (first icon of the row), or null
+    private fun starIconRect(row: Int): Rectangle? {
+        if (row < 0 || !isFileRow(row)) return null
+        val b = tree.getRowBounds(row) ?: return null
+        val icon = AllIcons.Nodes.Favorite
+        return Rectangle(b.x, b.y + (b.height - icon.iconHeight) / 2, icon.iconWidth, icon.iconHeight)
+    }
 
     // close icon centered in the right gutter for a file row, or null
     private fun closeIconRect(row: Int): Rectangle? {
@@ -274,10 +322,10 @@ class TabGroupsPanel(private val project: Project) : SimpleToolWindowPanel(true,
         val settings = TabGroupsSettings.getInstance()
         val openFiles = FileEditorManager.getInstance(project).openFiles
 
-        // bucket by display order; misc's Int.MAX_VALUE keeps it last
+        // bucket by display order; starred sits first, misc's Int.MAX_VALUE keeps it last
         val buckets = LinkedHashMap<Int, Pair<ResolvedGroup, MutableList<VirtualFile>>>()
         for (file in openFiles) {
-            val resolved = GroupMatcher.resolve(file, settings)
+            val resolved = if (settings.isStarred(file.url)) starredGroup else GroupMatcher.resolve(file, settings)
             val entry = buckets.getOrPut(resolved.order) { resolved to mutableListOf() }
             entry.second.add(file)
         }

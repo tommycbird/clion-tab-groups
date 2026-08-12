@@ -10,6 +10,7 @@ data class ResolvedGroup(
     val isMisc: Boolean,
     // display order; misc sorts last
     val order: Int,
+    val isStarred: Boolean = false,
 )
 
 // resolves files into groups, first-match-wins, with cached compiled regexes

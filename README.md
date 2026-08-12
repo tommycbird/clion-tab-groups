@@ -9,6 +9,8 @@ acts as your tab bar instead.
 ## Features
 
 - **Regex groups** — each group has a name, a color, and a regex.
+- **Starred files** — click the star on the far-left of any file to pin it into a **Starred**
+  group at the top, regardless of its category. Closing a starred file unstars it.
 - **Priority ordering** — a numeric priority per group. Lowest number is tested first
   (first match wins) and is also the display order. Ties fall back to list position.
 - **Misc catch-all** — anything that matches no group lands in a customizable **Misc**

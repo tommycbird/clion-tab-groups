@@ -27,6 +27,10 @@ class TabGroupsSettings : PersistentStateComponent<TabGroupsSettings> {
     @XCollection(propertyElementName = "collapsed")
     var collapsedGroups: MutableList<String> = mutableListOf()
 
+    // urls of starred files, remembered across sessions
+    @XCollection(propertyElementName = "starred")
+    var starred: MutableList<String> = mutableListOf()
+
     override fun getState(): TabGroupsSettings = this
 
     override fun loadState(state: TabGroupsSettings) {
@@ -40,6 +44,16 @@ class TabGroupsSettings : PersistentStateComponent<TabGroupsSettings> {
             if (!collapsedGroups.contains(groupName)) collapsedGroups.add(groupName)
         } else {
             collapsedGroups.remove(groupName)
+        }
+    }
+
+    fun isStarred(url: String): Boolean = starred.contains(url)
+
+    fun setStarred(url: String, star: Boolean) {
+        if (star) {
+            if (!starred.contains(url)) starred.add(url)
+        } else {
+            starred.remove(url)
         }
     }
 

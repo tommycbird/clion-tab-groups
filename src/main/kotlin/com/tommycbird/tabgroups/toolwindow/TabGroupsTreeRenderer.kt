@@ -1,18 +1,21 @@
 package com.tommycbird.tabgroups.toolwindow
 
+import com.intellij.icons.AllIcons
 import com.intellij.openapi.project.Project
 import com.intellij.openapi.vfs.VirtualFile
 import com.intellij.ui.ColoredTreeCellRenderer
 import com.intellij.ui.JBColor
+import com.intellij.ui.RowIcon
 import com.intellij.ui.SimpleTextAttributes
 import com.intellij.util.ui.ColorIcon
 import com.intellij.util.ui.EmptyIcon
 import com.intellij.util.ui.UIUtil
+import com.tommycbird.tabgroups.settings.TabGroupsSettings
 import java.awt.Color
 import javax.swing.JTree
 import javax.swing.tree.DefaultMutableTreeNode
 
-// group headers get a color swatch + name + count; active file is bold and shown on collapsed headers
+// group headers get a swatch (or star) + name + count; file rows get a star toggle + file icon
 class TabGroupsTreeRenderer(private val project: Project) : ColoredTreeCellRenderer() {
 
     // file currently focused in the editor; set by the panel
@@ -31,7 +34,7 @@ class TabGroupsTreeRenderer(private val project: Project) : ColoredTreeCellRende
         when (val obj = node.userObject) {
             is GroupNode -> {
                 val color = safeColor(obj.group.colorRgb)
-                icon = ColorIcon(12, color)
+                icon = if (obj.group.isStarred) AllIcons.Nodes.Favorite else ColorIcon(12, color)
                 append(
                     obj.group.name,
                     SimpleTextAttributes(SimpleTextAttributes.STYLE_BOLD, color),
@@ -48,11 +51,14 @@ class TabGroupsTreeRenderer(private val project: Project) : ColoredTreeCellRende
 
             is FileNode -> {
                 val file = obj.file
-                icon = try {
+                val fileIcon = try {
                     file.fileType.icon
                 } catch (_: Exception) {
                     EmptyIcon.ICON_16
                 }
+                val starred = TabGroupsSettings.getInstance().isStarred(file.url)
+                val star = if (starred) AllIcons.Nodes.Favorite else AllIcons.Nodes.NotFavoriteOnHover
+                icon = RowIcon(star, fileIcon)
                 val active = file == activeFile
                 val attrs = if (active) {
                     SimpleTextAttributes.REGULAR_BOLD_ATTRIBUTES
