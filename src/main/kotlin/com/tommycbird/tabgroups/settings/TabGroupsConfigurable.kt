@@ -76,7 +76,7 @@ class TabGroupsConfigurable : Configurable {
 
         val help = JBLabel(
             "<html>Files are matched by <b>Priority</b> (lowest number first). The first group whose<br>" +
-                "regex matches wins; that order is also the display order. <b>Misc</b> is always last.</html>"
+                "regex matches wins. <b>List order</b> controls display order. <b>Misc</b> is always last.</html>"
         ).apply { border = JBUI.Borders.emptyBottom(8) }
 
         val bottom = FormBuilder.createFormBuilder()

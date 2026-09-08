@@ -39,11 +39,11 @@ object GroupMatcher {
         val sorted = settings.groups
             .withIndex()
             .sortedWith(compareBy({ it.value.priority }, { it.index }))
-        sorted.forEachIndexed { position, indexed ->
+        for (indexed in sorted) {
             val group = indexed.value
             val regex = compile(group.regex)
             if (regex != null && regex.containsMatchIn(target)) {
-                return ResolvedGroup(group.name, group.colorRgb, isMisc = false, order = position)
+                return ResolvedGroup(group.name, group.colorRgb, isMisc = false, order = indexed.index)
             }
         }
         return ResolvedGroup(
