@@ -1,6 +1,7 @@
 package com.tommycbird.tabgroups.toolwindow
 
 import com.intellij.icons.AllIcons
+import com.intellij.openapi.fileEditor.FileDocumentManager
 import com.intellij.openapi.project.Project
 import com.intellij.openapi.vfs.VirtualFile
 import com.intellij.ui.ColoredTreeCellRenderer
@@ -81,10 +82,36 @@ class TabGroupsTreeRenderer(private val project: Project) : ColoredTreeCellRende
                 toolTipText = file.path
             }
 
+            is BookmarkNode -> {
+                val file = obj.bookmark.file
+                val lineLabel = ":${obj.line + 1}"
+                icon = obj.type.icon
+                val description = obj.description
+                if (description != null) {
+                    append(description)
+                    append("  $lineLabel", SimpleTextAttributes.GRAYED_ATTRIBUTES)
+                } else {
+                    append(lineLabel, SimpleTextAttributes.GRAYED_ATTRIBUTES)
+                    lineText(file, obj.line)?.let { append("  $it") }
+                }
+                toolTipText = "${file.path}$lineLabel"
+            }
+
             else -> {
                 append(obj?.toString() ?: "")
             }
         }
+    }
+
+    // trimmed source text of a line, from the already-loaded document only
+    private fun lineText(file: VirtualFile, line: Int): String? {
+        val doc = FileDocumentManager.getInstance().getCachedDocument(file) ?: return null
+        if (line < 0 || line >= doc.lineCount) return null
+        val text = doc.charsSequence
+            .subSequence(doc.getLineStartOffset(line), doc.getLineEndOffset(line))
+            .toString()
+            .trim()
+        return text.takeIf { it.isNotEmpty() }
     }
 
     private fun safeColor(rgb: Int): Color = try {

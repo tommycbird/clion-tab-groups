@@ -1,5 +1,11 @@
 package com.tommycbird.tabgroups.toolwindow
 
+import com.intellij.ide.bookmark.Bookmark
+import com.intellij.ide.bookmark.BookmarkGroup
+import com.intellij.ide.bookmark.BookmarkType
+import com.intellij.ide.bookmark.BookmarksListener
+import com.intellij.ide.bookmark.BookmarksManager
+import com.intellij.ide.bookmark.LineBookmark
 import com.intellij.openapi.Disposable
 import com.intellij.openapi.actionSystem.ActionGroup
 import com.intellij.openapi.actionSystem.ActionManager
@@ -65,6 +71,9 @@ class TabGroupsPanel(private val project: Project) : SimpleToolWindowPanel(true,
     // guards the expansion listener while we expand/collapse programmatically
     private var rebuilding = false
 
+    // urls of file rows whose bookmark dropdown is expanded (collapsed by default)
+    private val expandedFiles = mutableSetOf<String>()
+
     init {
         tree.isRootVisible = false
         tree.showsRootHandles = true
@@ -83,7 +92,12 @@ class TabGroupsPanel(private val project: Project) : SimpleToolWindowPanel(true,
                 val row = rowAt(e.x, e.y)
                 if (row < 0) return
                 val obj = nodeAt(row)?.userObject
-                if (obj is FileNode) {
+                // left of the row is the expand handle; let the tree toggle the bookmark dropdown
+                val bounds = tree.getRowBounds(row)
+                if (bounds != null && e.x < bounds.x) return
+                if (obj is BookmarkNode) {
+                    navigateTo(obj)
+                } else if (obj is FileNode) {
                     // far-left star toggles; hover X closes; anywhere else opens
                     if (starIconRect(row)?.contains(e.x, e.y) == true) {
                         toggleStar(obj.file)
@@ -159,10 +173,43 @@ class TabGroupsPanel(private val project: Project) : SimpleToolWindowPanel(true,
             }
         })
 
+        // mirror the native Bookmarks tool window: any add/remove/rename/move rebuilds the dropdowns
+        connection.subscribe(BookmarksListener.TOPIC, object : BookmarksListener {
+            override fun bookmarkAdded(group: BookmarkGroup, bookmark: Bookmark) = scheduleRebuild()
+            override fun bookmarkRemoved(group: BookmarkGroup, bookmark: Bookmark) = scheduleRebuild()
+            override fun bookmarkChanged(group: BookmarkGroup, bookmark: Bookmark) = scheduleRebuild()
+            override fun bookmarkTypeChanged(bookmark: Bookmark) = scheduleRebuild()
+            override fun bookmarksSorted(group: BookmarkGroup) = scheduleRebuild()
+            override fun groupRemoved(group: BookmarkGroup) = scheduleRebuild()
+            override fun structureChanged(node: Any?) = scheduleRebuild()
+        })
+
         ApplicationManager.getApplication().messageBus.connect(this)
             .subscribe(TabGroupsSettings.TOPIC, Runnable {
                 ApplicationManager.getApplication().invokeLater({ rebuild() }, project.disposed)
             })
+    }
+
+    private fun scheduleRebuild() {
+        ApplicationManager.getApplication().invokeLater({ rebuild() }, project.disposed)
+    }
+
+    private fun navigateTo(node: BookmarkNode) {
+        if (node.bookmark.canNavigate()) node.bookmark.navigate(true)
+    }
+
+    // native line bookmarks per file, sorted by line, with their mnemonic type and description
+    private fun bookmarksByFile(): Map<VirtualFile, List<BookmarkNode>> {
+        val manager = BookmarksManager.getInstance(project) ?: return emptyMap()
+        return manager.bookmarks
+            .filterIsInstance<LineBookmark>()
+            .map { b ->
+                val description = manager.getGroups(b)
+                    .firstNotNullOfOrNull { g -> g.getDescription(b)?.takeIf { it.isNotBlank() } }
+                BookmarkNode(b, manager.getType(b) ?: BookmarkType.DEFAULT, description)
+            }
+            .groupBy { it.bookmark.file }
+            .mapValues { (_, nodes) -> nodes.sortedBy { it.line } }
     }
 
     private fun openFile(file: VirtualFile) {
@@ -317,8 +364,10 @@ class TabGroupsPanel(private val project: Project) : SimpleToolWindowPanel(true,
     private fun onExpansionChanged(path: TreePath, expanded: Boolean) {
         if (rebuilding) return
         val node = path.lastPathComponent as? DefaultMutableTreeNode ?: return
-        val group = node.userObject as? GroupNode ?: return
-        TabGroupsSettings.getInstance().setCollapsed(group.group.name, !expanded)
+        when (val obj = node.userObject) {
+            is GroupNode -> TabGroupsSettings.getInstance().setCollapsed(obj.group.name, !expanded)
+            is FileNode -> if (expanded) expandedFiles.add(obj.file.url) else expandedFiles.remove(obj.file.url)
+        }
     }
 
     private fun setAllCollapsed(collapsed: Boolean) {
@@ -346,6 +395,7 @@ class TabGroupsPanel(private val project: Project) : SimpleToolWindowPanel(true,
         }
 
         val ordered = buckets.entries.sortedBy { it.key }
+        val bookmarks = bookmarksByFile()
 
         rebuilding = true
         try {
@@ -355,7 +405,13 @@ class TabGroupsPanel(private val project: Project) : SimpleToolWindowPanel(true,
                 val (group, files) = value
                 val groupNode = DefaultMutableTreeNode(GroupNode(group, files.toList()))
                 for (file in files) {
-                    groupNode.add(DefaultMutableTreeNode(FileNode(file)))
+                    val fileNode = DefaultMutableTreeNode(FileNode(file))
+                    val fileBookmarks = bookmarks[file].orEmpty()
+                    fileBookmarks.forEach { fileNode.add(DefaultMutableTreeNode(it)) }
+                    groupNode.add(fileNode)
+                    if (fileBookmarks.isNotEmpty() && file.url !in expandedFiles) {
+                        collapsedPaths.add(TreePath(arrayOf<Any>(rootNode, groupNode, fileNode)))
+                    }
                 }
                 rootNode.add(groupNode)
                 if (settings.isCollapsed(group.name)) {

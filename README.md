@@ -21,6 +21,10 @@ acts as your tab bar instead.
   tool window. If its group is collapsed it stays collapsed, and the active file is shown
   inline on the collapsed header so you never lose track of it.
 - **Single-click to open** — click a file entry to open/focus it.
+- **Bookmark dropdowns** — any file with native IDE line bookmarks (the **Bookmarks** tool
+  window, `F11` / `Ctrl+F11`) gets its own collapsible list beneath it showing each bookmark's
+  mnemonic icon, line number, and description (or the line's source text). Click one to jump
+  to it. Stays in sync as bookmarks are added, removed, renamed, or moved.
 - **Name or full-path matching** — match regexes against the file name (default) or the
   full path.
 
