@@ -9,6 +9,7 @@ import com.intellij.ide.bookmark.LineBookmark
 import com.intellij.openapi.Disposable
 import com.intellij.openapi.actionSystem.ActionGroup
 import com.intellij.openapi.actionSystem.ActionManager
+import com.intellij.openapi.actionSystem.ActionUpdateThread
 import com.intellij.openapi.actionSystem.AnAction
 import com.intellij.openapi.actionSystem.AnActionEvent
 import com.intellij.openapi.actionSystem.CommonDataKeys
@@ -23,7 +24,11 @@ import com.intellij.openapi.fileEditor.impl.EditorWindow
 import com.intellij.openapi.options.ShowSettingsUtil
 import com.intellij.openapi.project.Project
 import com.intellij.openapi.vfs.VirtualFile
+import com.intellij.openapi.vfs.VirtualFileManager
+import com.intellij.openapi.ui.InputValidator
+import com.intellij.openapi.ui.Messages
 import com.intellij.openapi.ui.SimpleToolWindowPanel
+import com.intellij.openapi.ui.popup.JBPopupFactory
 import com.intellij.ui.PopupHandler
 import com.intellij.ui.ScrollPaneFactory
 import com.intellij.ui.treeStructure.Tree
@@ -32,6 +37,8 @@ import com.tommycbird.tabgroups.matcher.GroupMatcher
 import com.tommycbird.tabgroups.matcher.ResolvedGroup
 import com.tommycbird.tabgroups.settings.TabGroupsConfigurable
 import com.tommycbird.tabgroups.settings.TabGroupsSettings
+import com.tommycbird.tabgroups.states.SavedTabState
+import com.tommycbird.tabgroups.states.TabStatesService
 import com.intellij.icons.AllIcons
 import com.intellij.ui.Gray
 import com.intellij.ui.JBColor
@@ -147,6 +154,13 @@ class TabGroupsPanel(private val project: Project) : SimpleToolWindowPanel(true,
                 }
             })
             addSeparator()
+            add(object : AnAction("Save Tab State…", "Save the open files and stars under a name", AllIcons.Actions.MenuSaveall) {
+                override fun actionPerformed(e: AnActionEvent) = promptSaveState()
+            })
+            add(object : AnAction("Saved Tab States", "Swap to a saved set of open files", AllIcons.Vcs.ShelveSilent) {
+                override fun actionPerformed(e: AnActionEvent) = showStatesPopup(e)
+            })
+            addSeparator()
             add(object : AnAction("Expand All", null, AllIcons.Actions.Expandall) {
                 override fun actionPerformed(e: AnActionEvent) = setAllCollapsed(false)
             })
@@ -157,6 +171,99 @@ class TabGroupsPanel(private val project: Project) : SimpleToolWindowPanel(true,
         val actionToolbar = ActionManager.getInstance().createActionToolbar("TabGroups", group, true)
         actionToolbar.targetComponent = this
         return actionToolbar.component
+    }
+
+    private fun promptSaveState() {
+        val service = TabStatesService.getInstance(project)
+        val validator = object : InputValidator {
+            override fun checkInput(inputString: String?): Boolean = !inputString.isNullOrBlank()
+            override fun canClose(inputString: String?): Boolean = checkInput(inputString)
+        }
+        val name = Messages.showInputDialog(
+            project, "Name for this tab state:", "Save Tab State", null, null, validator,
+        )?.trim() ?: return
+        if (service.find(name) != null) {
+            val answer = Messages.showYesNoDialog(
+                project, "Overwrite tab state \"$name\"?", "Save Tab State", null,
+            )
+            if (answer != Messages.YES) return
+        }
+        service.save(captureState(name))
+    }
+
+    private fun captureState(name: String): SavedTabState {
+        val manager = FileEditorManager.getInstance(project)
+        val settings = TabGroupsSettings.getInstance()
+        val files = manager.openFiles.map { it.url }
+        return SavedTabState(name, files, files.filter { settings.isStarred(it) }, manager.selectedEditor?.file?.url)
+    }
+
+    // closes files not in the state, opens the missing ones, then applies its stars and active file.
+    // files already open are kept rather than reopened, so the unstar-on-close listener never touches them.
+    private fun restoreState(state: SavedTabState) {
+        val manager = FileEditorManager.getInstance(project)
+        val vfs = VirtualFileManager.getInstance()
+        val targets = state.files.mapNotNull { vfs.findFileByUrl(it) }.filter { it.isValid }
+        val keep = targets.toSet()
+
+        manager.openFiles.filter { it !in keep }.forEach { manager.closeFile(it) }
+
+        val settings = TabGroupsSettings.getInstance()
+        targets.forEach { settings.setStarred(it.url, it.url in state.starred) }
+        targets.filterNot { manager.isFileOpen(it) }.forEach { manager.openFile(it, false) }
+
+        val active = state.active?.let { vfs.findFileByUrl(it) }?.takeIf { it in keep } ?: targets.firstOrNull()
+        active?.let { manager.openFile(it, true) }
+        rebuild()
+    }
+
+    private fun showStatesPopup(e: AnActionEvent) {
+        val service = TabStatesService.getInstance(project)
+        val group = DefaultActionGroup()
+        if (service.states.isEmpty()) {
+            group.add(PlainTextAction("No saved states", null) {}.apply { enabled = false })
+        } else {
+            service.states.forEach { state ->
+                group.add(PlainTextAction("${state.name}  (${state.files.size} files, ${state.starred.size} starred)", null) {
+                    restoreState(state)
+                })
+            }
+            group.addSeparator()
+            group.add(DefaultActionGroup("Delete", true).apply {
+                templatePresentation.icon = AllIcons.General.Remove
+                service.states.forEach { state ->
+                    add(PlainTextAction(state.name, null) {
+                        val answer = Messages.showYesNoDialog(
+                            project, "Delete tab state \"${state.name}\"?", "Delete Tab State", null,
+                        )
+                        if (answer == Messages.YES) service.remove(state.name)
+                    })
+                }
+            })
+        }
+        val popup = JBPopupFactory.getInstance().createActionGroupPopup(
+            "Tab States", group, e.dataContext, JBPopupFactory.ActionSelectionAid.SPEEDSEARCH, true,
+        )
+        val anchor = e.inputEvent?.component
+        if (anchor != null) popup.showUnderneathOf(anchor) else popup.showInBestPositionFor(e.dataContext)
+    }
+
+    // action whose text is shown verbatim (no mnemonic parsing, so underscores in names survive)
+    private class PlainTextAction(text: String, icon: javax.swing.Icon?, private val run: () -> Unit) : AnAction() {
+        var enabled = true
+
+        init {
+            templatePresentation.setText(text, false)
+            templatePresentation.icon = icon
+        }
+
+        override fun getActionUpdateThread(): ActionUpdateThread = ActionUpdateThread.EDT
+
+        override fun update(e: AnActionEvent) {
+            e.presentation.isEnabled = enabled
+        }
+
+        override fun actionPerformed(e: AnActionEvent) = run()
     }
 
     private fun subscribe() {

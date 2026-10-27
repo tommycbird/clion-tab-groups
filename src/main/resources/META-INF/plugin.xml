@@ -29,5 +29,7 @@
             secondary="false"
             icon="/icons/tabGroups.svg"
             factoryClass="com.tommycbird.tabgroups.toolwindow.TabGroupsToolWindowFactory"/>
+
+        <postStartupActivity implementation="com.tommycbird.tabgroups.states.LegacyStatesMigrator"/>
     </extensions>
 </idea-plugin>

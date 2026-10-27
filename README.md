@@ -25,6 +25,16 @@ acts as your tab bar instead.
   window, `F11` / `Ctrl+F11`) gets its own collapsible list beneath it showing each bookmark's
   mnemonic icon, line number, and description (or the line's source text). Click one to jump
   to it. Stays in sync as bookmarks are added, removed, renamed, or moved.
+- **Saved tab states (shelf)** — the save button on the toolbar snapshots the open files, which of
+  them are starred, and the active file under a name. The shelf button lists saved states; pick one
+  to swap to it: files not in the state are closed, missing ones are opened, stars are restored,
+  and the saved active file gets focus. States can be overwritten by saving under the same name,
+  or removed via **Delete**.
+- **Shared across worktrees/clones** — saved states are keyed by the repository (its git origin
+  url), not the project directory, so every worktree and clone of the same repo sees the same
+  shelf. Paths are stored relative to the project root, so a state saved in one worktree restores
+  the matching files in any other. The *currently open editors* stay per-project — only the named
+  snapshots are shared. Projects that aren't git repos keep a private shelf.
 - **Name or full-path matching** — match regexes against the file name (default) or the
   full path.
 
