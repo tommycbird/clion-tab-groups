@@ -179,8 +179,9 @@ class TabGroupsPanel(private val project: Project) : SimpleToolWindowPanel(true,
             override fun checkInput(inputString: String?): Boolean = !inputString.isNullOrBlank()
             override fun canClose(inputString: String?): Boolean = checkInput(inputString)
         }
-        val name = Messages.showInputDialog(
-            project, "Name for this tab state:", "Save Tab State", null, null, validator,
+        val name = Messages.showEditableChooseDialog(
+            "Save tab state as (pick an existing name to overwrite it):",
+            "Save Tab State", null, service.states.map { it.name }.toTypedArray(), null, validator,
         )?.trim() ?: return
         if (service.find(name) != null) {
             val answer = Messages.showYesNoDialog(
